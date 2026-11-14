@@ -175,27 +175,57 @@ def rank(ctx: RunContext, scored: pd.DataFrame) -> pd.DataFrame:
 # ---------------------------------------------------------------- 04 review
 def review(ctx: RunContext, scored: pd.DataFrame,
            queue: pd.DataFrame) -> pd.DataFrame:
+    import json
+    from pathlib import Path
+
     reviewed_path = ctx.output_dir / "review_queue_reviewed.csv"
+    request_path = Path("reports/dev_label_edits.json")
     ctx.stats["n_reviewed"] = 0
 
+    requests = []
+    if request_path.exists():
+        requests = json.loads(request_path.read_text(encoding="utf-8-sig"))
+
+    queue_requests = [
+        r for r in requests if r.get("review_scope") == "queue_dev"
+    ]
+    queue_edits = {r["item_id"]: r for r in queue_requests}
+    if len(queue_edits) != len(queue_requests):
+        raise ValueError("Duplicate queue edit requests")
+
     if not reviewed_path.exists():
+        if queue_edits:
+            raise ValueError("Queue edits require a reviewed queue")
         return scored
 
     reviewed = load_review_decisions(reviewed_path)
-
     if reviewed["item_id"].duplicated().any():
         raise ValueError("Duplicate item_id in reviewed file")
+
+    edit_ids = set(
+        reviewed.loc[reviewed["reviewer_decision"] == "edit", "item_id"]
+    )
+    if edit_ids != set(queue_edits):
+        raise ValueError("Review edits and queue edit requests must match")
 
     valid_ids = set(queue["item_id"])
     for row in reviewed.itertuples(index=False):
         if row.item_id not in valid_ids:
-            raise ValueError(f"Item outside current review queue: {row.item_id}")
+            raise ValueError(f"Item outside current queue: {row.item_id}")
+        if row.reviewer_decision not in {"approve", "skip", "escalate", "edit"}:
+            raise ValueError("Unsupported review decision")
 
-        # Hiện mới hỗ trợ giữ nhãn, bỏ qua hoặc chuyển kiểm tra thêm
-        if row.reviewer_decision not in {"approve", "skip", "escalate"}:
-            raise ValueError("Label editing is not implemented yet")
+        if row.reviewer_decision == "edit":
+            request = queue_edits[row.item_id]
+            if request["operation"] != "edit":
+                raise ValueError("Expected an edit operation")
+            if json.loads(row.override_value) != request["annotation"]:
+                raise ValueError("Override does not match requested annotation")
+            if row.reviewer != request["reviewer"]:
+                raise ValueError("Reviewer names do not match")
+            if row.evidence_path != request["evidence_path"]:
+                raise ValueError("Review evidence paths do not match")
 
-    # Chỉ ghi audit sau khi toàn bộ quyết định đã được kiểm tra
     for row in reviewed.itertuples(index=False):
         ctx.audit.log(
             actor=row.reviewer,
@@ -203,6 +233,7 @@ def review(ctx: RunContext, scored: pd.DataFrame,
             item_id=row.item_id,
             after={
                 "decision": row.reviewer_decision,
+                "override_value": row.override_value,
                 "evidence_path": row.evidence_path,
                 "reviewed_at": row.reviewed_at,
             },
@@ -210,13 +241,18 @@ def review(ctx: RunContext, scored: pd.DataFrame,
         )
 
     ctx.stats["n_reviewed"] = len(reviewed)
+    ctx.stats["n_queue_edits"] = len(edit_ids)
     return scored
 
 # ---------------------------------------------------------------- 05 decide
 def decide(ctx: RunContext, final: pd.DataFrame) -> Decision:
-    # TODO: replace with your policy (thresholds frozen BEFORE looking at eval results)
-    return Decision(status="HOLD", reason_code="POLICY_NOT_IMPLEMENTED", reason="Decision policy not implemented yet",
-                    owner=ctx.config.get("owner", "TODO-owner"), scope=ctx.track)
+    return Decision(
+        status="HOLD",
+        reason_code="POLICY_NOT_IMPLEMENTED",
+        reason="Decision policy not implemented yet",
+        owner=ctx.config.get("owner", "TODO-owner"),
+        scope=ctx.track,
+    )
 
 
 def run(ctx: RunContext) -> None:
@@ -224,8 +260,19 @@ def run(ctx: RunContext) -> None:
     data = load(ctx)
     scored = process(ctx, data)
     ctx.stats["n_items"] = len(scored)
+
     queue = rank(ctx, scored)
     final = review(ctx, scored, queue)
     apply_dev_additions(ctx)
-    final[spec.pred_columns + [c for c in final.columns if c not in spec.pred_columns]].to_csv(ctx.out(spec.pred_file), index=False)
-    write_decision(decide(ctx, final), ctx.out("decision.json"), ctx.out("decision_log.csv"))
+
+    columns = spec.pred_columns + [
+        column for column in final.columns
+        if column not in spec.pred_columns
+    ]
+    final[columns].to_csv(ctx.out(spec.pred_file), index=False)
+
+    write_decision(
+        decide(ctx, final),
+        ctx.out("decision.json"),
+        ctx.out("decision_log.csv"),
+    )

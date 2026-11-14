@@ -16,13 +16,14 @@ def apply_dev_additions(ctx):
     if not isinstance(requests, list):
         raise ValueError("Dev edit requests must be a list")
 
-    known_ids = set(annotations["ann_id"])
-    additions = []
+    corrected = annotations.copy()
+    seen_ids = set()
     changes = []
 
     for request in requests:
-        if request["operation"] != "add":
-            raise ValueError("Only add operations are supported here")
+        operation = request.get("operation")
+        if operation not in {"add", "edit"}:
+            raise ValueError("Supported operations: add, edit")
         if not request.get("reviewer", "").strip():
             raise ValueError("Reviewer is required")
         if not request.get("reason", "").strip():
@@ -33,16 +34,20 @@ def apply_dev_additions(ctx):
         row = dict(request["annotation"])
         if set(row) != set(annotations.columns):
             raise ValueError("Annotation columns do not match")
-        if row["ann_id"] in known_ids:
-            raise ValueError(f"Duplicate annotation ID: {row['ann_id']}")
+        if row["ann_id"] in seen_ids:
+            raise ValueError("Multiple requests for the same annotation")
         if row["image_id"] not in images.index:
             raise ValueError("Unknown image ID")
 
         image = images.loc[row["image_id"]]
         if image["split"] != "dev":
             raise ValueError("Manual development edits must target dev")
-        if request["item_id"] != f"img:{row['image_id']}":
-            raise ValueError("Request item_id does not match image_id")
+
+        expected_item = (
+            f"img:{row['image_id']}" if operation == "add" else row["ann_id"]
+        )
+        if request["item_id"] != expected_item:
+            raise ValueError("Request item_id does not match annotation")
         if row["class"] not in {"car", "motorbike", "pedestrian", "sign"}:
             raise ValueError("Unknown annotation class")
 
@@ -57,26 +62,46 @@ def apply_dev_additions(ctx):
         if x + w > image["width"] or y + h > image["height"]:
             raise ValueError("Bounding box exceeds image bounds")
 
-        known_ids.add(row["ann_id"])
-        additions.append(row)
-        changes.append((request, row))
+        mask = corrected["ann_id"] == row["ann_id"]
+        before = None
 
-    corrected = pd.concat(
-        [annotations, pd.DataFrame(additions)],
-        ignore_index=True,
-    )
+        if operation == "add":
+            if mask.any():
+                raise ValueError(f"Annotation already exists: {row['ann_id']}")
+            corrected = pd.concat(
+                [corrected, pd.DataFrame([row])],
+                ignore_index=True,
+            )
+        else:
+            if int(mask.sum()) != 1:
+                raise ValueError("Edit must target exactly one existing annotation")
+            before = corrected.loc[mask].iloc[0].to_dict()
+            if before["image_id"] != row["image_id"]:
+                raise ValueError("Cannot move an annotation to another image")
+            for column, value in row.items():
+                corrected.loc[mask, column] = value
+
+        seen_ids.add(row["ann_id"])
+        changes.append((request, before, row))
+
+    # Chỉ xuất file sau khi mọi yêu cầu đều hợp lệ
     corrected.to_csv(ctx.out("annotations_reviewed.csv"), index=False)
 
-    for request, row in changes:
+    for request, before, row in changes:
         ctx.audit.log(
             actor=request["reviewer"],
-            action="dev_review:add_annotation",
+            action=f"dev_review:{request['operation']}_annotation",
             item_id=request["item_id"],
-            before=None,
+            before=before,
             after=row,
             reason=request["reason"],
             evidence_path=request["evidence_path"],
-            review_scope="supplemental_dev",
+            review_scope=request.get("review_scope", "supplemental_dev"),
         )
 
-    ctx.stats["n_dev_added"] = len(additions)
+    ctx.stats["n_dev_added"] = sum(
+        request["operation"] == "add" for request in requests
+    )
+    ctx.stats["n_dev_edited"] = sum(
+        request["operation"] == "edit" for request in requests
+    )

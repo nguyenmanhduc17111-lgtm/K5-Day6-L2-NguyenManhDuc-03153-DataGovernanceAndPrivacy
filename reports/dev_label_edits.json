@@ -14,5 +14,54 @@
       "w": 17.13,
       "h": 13.9
     }
+  },
+  {
+    "item_id": "img:lbl_26",
+    "operation": "add",
+    "reviewer": "Nguyễn Mạnh Đức",
+    "reason": "Quan sát ảnh phóng to: đối tượng motorbike giữa đường chưa có nhãn; đã kiểm tra khung đề xuất.",
+    "evidence_path": "out/poc/proposed_lbl26_motorbike.png",
+    "annotation": {
+      "ann_id": "review_lbl_26_motorbike_01",
+      "image_id": "lbl_26",
+      "class": "motorbike",
+      "x": 153,
+      "y": 78,
+      "w": 12,
+      "h": 16
+    }
+  },
+  {
+    "item_id": "ann_104",
+    "operation": "edit",
+    "reviewer": "Nguyễn Mạnh Đức",
+    "reason": "Khung cũ lệch xuống và sang trái; đã kiểm tra khung mới bao quanh biển báo đỏ.",
+    "evidence_path": "out/poc/proposed_ann_104.png",
+    "annotation": {
+      "ann_id": "ann_104",
+      "image_id": "lbl_26",
+      "class": "sign",
+      "x": 260,
+      "y": 40,
+      "w": 20,
+      "h": 20
+    }
+  },
+  {
+    "item_id": "ann_123",
+    "operation": "edit",
+    "review_scope": "queue_dev",
+    "reviewer": "Nguyễn Mạnh Đức",
+    "reason": "Moved and enlarged the box to include the motorcycle body and both wheels; visually reviewed.",
+    "evidence_path": "out/poc/proposed_ann_123.png",
+    "annotation": {
+      "ann_id": "ann_123",
+      "image_id": "lbl_30",
+      "class": "motorbike",
+      "x": 241,
+      "y": 131,
+      "w": 26,
+      "h": 44
+    }
   }
 ]
