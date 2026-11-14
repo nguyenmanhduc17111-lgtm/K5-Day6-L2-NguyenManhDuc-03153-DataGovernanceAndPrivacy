@@ -29,6 +29,11 @@ from .metrics.tracks import get_track
 
 # ---------------------------------------------------------------- 01 load
 def load(ctx: RunContext) -> dict:
+    if ctx.track != "t11":
+        raise NotImplementedError(
+            f"This pipeline supports t11 only; received {ctx.track}"
+        )
+
     manifest = ctx.input_dir / "manifest.csv"
     problems = verify_manifest(manifest) if manifest.exists() else [{"problem": "no_manifest"}]
     if problems:
@@ -179,6 +184,8 @@ def review(ctx: RunContext, scored: pd.DataFrame,
     from pathlib import Path
 
     reviewed_path = ctx.output_dir / "review_queue_reviewed.csv"
+    if not reviewed_path.exists():
+        reviewed_path = Path("reports/review_queue_reviewed.csv")
     request_path = Path("reports/dev_label_edits.json")
     ctx.stats["n_reviewed"] = 0
 
@@ -246,14 +253,44 @@ def review(ctx: RunContext, scored: pd.DataFrame,
 
 # ---------------------------------------------------------------- 05 decide
 def decide(ctx: RunContext, final: pd.DataFrame) -> Decision:
+    from pathlib import Path
+
+    queue = pd.read_csv(ctx.out("review_queue.csv"))
+    reviewed_path = ctx.output_dir / "review_queue_reviewed.csv"
+    if not reviewed_path.exists():
+        reviewed_path = Path("reports/review_queue_reviewed.csv")
+
+    reason_code = "REVIEW_INCOMPLETE"
+    reason = "The selected development review queue is not fully resolved."
+
+    if reviewed_path.exists():
+        reviewed = load_review_decisions(reviewed_path)
+        resolved = set(
+            reviewed.loc[
+                reviewed["reviewer_decision"].isin(["approve", "edit"]),
+                "item_id",
+            ]
+        )
+
+        if (reviewed["reviewer_decision"] == "escalate").any():
+            reason_code = "REVIEW_ESCALATED"
+            reason = "At least one item requires further human review."
+        elif len(queue) > 0 and set(queue["item_id"]).issubset(resolved):
+            reason_code = "HELDOUT_EVALUATION_PENDING"
+            reason = (
+                "Development review is complete. "
+                f"Added {ctx.stats.get('n_dev_added', 0)} annotations and "
+                f"edited {ctx.stats.get('n_dev_edited', 0)} annotations. "
+                "Heldout evaluation is required before a release decision."
+            )
+
     return Decision(
         status="HOLD",
-        reason_code="POLICY_NOT_IMPLEMENTED",
-        reason="Decision policy not implemented yet",
-        owner=ctx.config.get("owner", "TODO-owner"),
+        reason_code=reason_code,
+        reason=reason,
+        owner=ctx.config["owner"],
         scope=ctx.track,
     )
-
 
 def run(ctx: RunContext) -> None:
     spec = get_track(ctx.track)
