@@ -1,0 +1,25 @@
+{
+  "images_total": 55,
+  "annotations_total": 205,
+  "candidates_total": 260,
+  "splits": [
+    {
+      "split": "dev",
+      "images": 38,
+      "annotations": 145,
+      "candidates": 183
+    },
+    {
+      "split": "heldout",
+      "images": 17,
+      "annotations": 60,
+      "candidates": 77
+    }
+  ],
+  "sources": [
+    "synthetic:tools/make_fixtures.py (seed 42)"
+  ],
+  "licenses": [
+    "CC0-1.0 (synthetic, generated for AI20K Day06)"
+  ]
+}

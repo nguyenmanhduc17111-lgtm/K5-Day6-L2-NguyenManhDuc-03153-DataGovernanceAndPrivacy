@@ -1,0 +1,117 @@
+{
+  "track": "t11",
+  "seed": 42,
+  "candidate_pool": {
+    "baseline": 260,
+    "poc": 260,
+    "same_ids": true,
+    "unique_ids": true
+  },
+  "official_metrics": {
+    "status": "not_evaluated",
+    "gt_available": false,
+    "baseline_error_recall_at_b": null,
+    "poc_error_recall_at_b": null
+  },
+  "dev_review": {
+    "queue_size": 10,
+    "reviewed": 10,
+    "decisions": {
+      "approve": 9,
+      "edit": 1
+    }
+  },
+  "dev_corrections": {
+    "added": 3,
+    "edited": 2,
+    "removed": 0,
+    "added_ids": [
+      "review_lbl_14_sign_01",
+      "review_lbl_26_motorbike_01",
+      "review_lbl_43_sign_01"
+    ],
+    "edited_ids": [
+      "ann_104",
+      "ann_123"
+    ],
+    "removed_ids": [],
+    "queue_requests": 1,
+    "supplemental_requests": 4,
+    "validation": "Human visual review; not hidden-GT verification"
+  },
+  "runs": {
+    "baseline": {
+      "track": "t11",
+      "run_name": "baseline",
+      "status": 0,
+      "seed": 42,
+      "offline": true,
+      "input": "fixtures\\t11_label_errors",
+      "output": "out\\baseline",
+      "pipeline": "src.examples.random_baseline",
+      "config_hash": "efc1e9a837c1",
+      "git_sha": "e454767",
+      "runtime_seconds": 0.2665,
+      "stats": {
+        "n_items": 260
+      },
+      "machine": {
+        "python": "3.14.7",
+        "platform": "Windows-11-10.0.26200-SP0",
+        "processor": "AMD64 Family 23 Model 104 Stepping 1, AuthenticAMD"
+      },
+      "output_check": {
+        "pred_file": "out\\baseline\\ranking.csv",
+        "exists": true,
+        "missing_columns": []
+      }
+    },
+    "poc": {
+      "track": "t11",
+      "run_name": "poc",
+      "status": 0,
+      "seed": 42,
+      "offline": true,
+      "input": "fixtures\\t11_label_errors",
+      "output": "out\\poc",
+      "pipeline": "src.pipeline",
+      "config_hash": "10d97c9d4291",
+      "git_sha": "e454767",
+      "runtime_seconds": 1.0437,
+      "stats": {
+        "n_items": 260,
+        "n_reviewed": 10,
+        "n_queue_edits": 1,
+        "n_dev_added": 3,
+        "n_dev_edited": 2
+      },
+      "machine": {
+        "python": "3.14.7",
+        "platform": "Windows-11-10.0.26200-SP0",
+        "processor": "AMD64 Family 23 Model 104 Stepping 1, AuthenticAMD"
+      },
+      "output_check": {
+        "pred_file": "out\\poc\\ranking.csv",
+        "exists": true,
+        "missing_columns": []
+      }
+    }
+  },
+  "decision": {
+    "status": "HOLD",
+    "reason_code": "HELDOUT_EVALUATION_PENDING",
+    "reason": "Development review is complete. Added 3 annotations and edited 2 annotations. Heldout evaluation is required before a release decision.",
+    "owner": "Nguyễn Mạnh Đức",
+    "scope": "t11",
+    "evidence": [],
+    "metrics": {},
+    "ts": "2026-11-14T14:21:11+00:00",
+    "canonical": "HOLD"
+  },
+  "limitations": [
+    "Official quality metrics have not been evaluated.",
+    "Supplemental corrections are not top-B discoveries.",
+    "Runtime includes different baseline and PoC workflow tasks.",
+    "Runtime values describe one run, not a benchmark average."
+  ]
+}

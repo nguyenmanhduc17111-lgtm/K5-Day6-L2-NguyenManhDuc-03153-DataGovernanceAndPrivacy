@@ -1,6 +1,2 @@
 member,git_author_name,git_email,role,modules_files,commit_shas,evidence_note,presenter
-Member 1,,,Lead / Integrator,src/main.py; configs/,,,
-Member 2,,,Data & fixtures,fixtures/; tools/,,,
-Member 3,,,Core algorithm,src/pipeline.py,,,
-Member 4,,,QA / metric,tests/; reports/metrics_*.json,,,
-Member 5,,,Human review + report,reports/group_report.md; demo/,,,
+Nguyễn Mạnh Đức,nguyennducgn,nguyennducg@gmail.com,Lead / Algorithm / QA / Human review,configs/lab.yaml; src/pipeline.py; src/dev_review.py; tools/inspect_t11.py; tests/test_t11_pipeline.py; reports/dev_label_edits.json; reports/review_queue_reviewed.csv; reports/review_evidence/,adf51c1; 7013215; 0c48180; e438172; e454767,Implemented T11 scoring and review workflow; visually reviewed 10 queued items; applied 5 corrections; added 2 tests; preserved review evidence,Planned
