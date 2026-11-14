@@ -35,19 +35,110 @@ def load(ctx: RunContext) -> dict:
         if ctx.config.get("strict_provenance", True):
             raise ValueError(f"provenance check failed ({len(problems)} problems), first: {problems[:3]}")
     data = {"manifest": pd.read_csv(manifest) if manifest.exists() else None}
-    # TODO: load the tables/images your track needs, e.g.
-    # data["images"] = pd.read_csv(ctx.input_dir / "images.csv")
+    data["images"] = pd.read_csv(ctx.input_dir / "images.csv")
+    data["annotations"] = pd.read_csv(ctx.input_dir / "annotations.csv")
+    data["predictions"] = pd.read_csv(ctx.input_dir / "model_predictions.csv")
     return data
+ 
+def bbox_iou(a, b) -> float:
+    # Phần giao nhau của hai khung
+    left = max(a["x"], b["x"])
+    top = max(a["y"], b["y"])
+    right = min(a["x"] + a["w"], b["x"] + b["w"])
+    bottom = min(a["y"] + a["h"], b["y"] + b["h"])
 
+    intersection = max(0.0, right - left) * max(0.0, bottom - top)
+
+    # Diện tích hợp = tổng diện tích - phần giao
+    area_a = max(0.0, a["w"]) * max(0.0, a["h"])
+    area_b = max(0.0, b["w"]) * max(0.0, b["h"])
+    union = area_a + area_b - intersection
+
+    return intersection / union if union > 0 else 0.0
 
 # ---------------------------------------------------------------- 02 process
 def process(ctx: RunContext, data: dict) -> pd.DataFrame:
-    spec = get_track(ctx.track)
-    raise NotImplementedError(
-        f"Implement process() for {spec.track} ({spec.title}). It must produce a DataFrame with at least "
-        f"{spec.pred_columns} (saved as out/{spec.pred_file}). See docs/tracks/{spec.track.upper()}.md"
-    )
+    annotations = data["annotations"]
+    predictions = data["predictions"]
+    results = []
 
+    for _, ann in annotations.iterrows():
+        candidates = predictions[
+            predictions["image_id"] == ann["image_id"]
+        ]
+
+        best_iou = 0.0
+        best_prediction = None
+
+        for _, pred in candidates.iterrows():
+            overlap = bbox_iou(ann, pred)
+            if overlap > best_iou:
+                best_iou = overlap
+                best_prediction = pred
+
+        score = 1.0 - best_iou
+        reason = "box_disagreement"
+
+        if best_prediction is None:
+            reason = "no_overlapping_prediction"
+        elif ann["class"] != best_prediction["class"]:
+            score = max(score, 0.9)
+            reason = "class_disagreement"
+        # Tìm nhãn khác cùng ảnh và cùng loại đối tượng
+        other_annotations = annotations[
+            (annotations["image_id"] == ann["image_id"])
+            & (annotations["class"] == ann["class"])
+            & (annotations["ann_id"] != ann["ann_id"])
+        ]
+
+        duplicate_iou = 0.0
+        for _, other in other_annotations.iterrows():
+            duplicate_iou = max(duplicate_iou, bbox_iou(ann, other))
+
+        # Hai khung trùng nhau nhiều có thể là nhãn bị lặp
+        if duplicate_iou >= 0.85:
+            score = max(score, duplicate_iou)
+            reason += ";possible_duplicate"
+        results.append({
+            "item_id": ann["ann_id"],
+            "score": score,
+            "reason": reason,
+        })
+
+        # Kiểm tra khả năng thiếu nhãn trên từng ảnh
+    for image_id in data["images"]["image_id"]:
+        image_annotations = annotations[
+            annotations["image_id"] == image_id
+        ]
+        image_predictions = predictions[
+            predictions["image_id"] == image_id
+        ]
+
+        missing_score = 0.0
+
+        for _, pred in image_predictions.iterrows():
+            if pred["conf"] < 0.7:
+                continue
+
+            best_overlap = 0.0
+            for _, ann in image_annotations.iterrows():
+                best_overlap = max(best_overlap, bbox_iou(pred, ann))
+
+            if best_overlap < 0.3:
+                suspicion = float(pred["conf"]) * (1.0 - best_overlap)
+                missing_score = max(missing_score, suspicion)
+
+        results.append({
+            "item_id": f"img:{image_id}",
+            "score": missing_score,
+            "reason": (
+                "possible_missing_annotation"
+                if missing_score > 0
+                else "no_missing_signal"
+            ),
+        })
+
+    return pd.DataFrame(results, columns=["item_id", "score", "reason"])
 
 # ---------------------------------------------------------------- 03 rank
 def rank(ctx: RunContext, scored: pd.DataFrame) -> pd.DataFrame:
