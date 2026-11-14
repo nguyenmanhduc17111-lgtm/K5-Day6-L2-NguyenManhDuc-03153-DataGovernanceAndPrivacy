@@ -1,0 +1,18 @@
+[
+  {
+    "item_id": "img:lbl_14",
+    "operation": "add",
+    "reviewer": "Nguyễn Mạnh Đức",
+    "reason": "Quan sát thấy biển báo đỏ chưa có nhãn; thêm khung sign sau khi kiểm tra ảnh.",
+    "evidence_path": "out/poc/inspect_lbl_14.png",
+    "annotation": {
+      "ann_id": "review_lbl_14_sign_01",
+      "image_id": "lbl_14",
+      "class": "sign",
+      "x": 293.77,
+      "y": 46.99,
+      "w": 17.13,
+      "h": 13.9
+    }
+  }
+]

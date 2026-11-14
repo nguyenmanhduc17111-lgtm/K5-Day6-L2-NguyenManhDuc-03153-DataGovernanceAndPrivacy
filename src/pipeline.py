@@ -18,6 +18,7 @@ See src/examples/random_baseline.py for a minimal end-to-end wiring example.
 from __future__ import annotations
 
 import pandas as pd
+from .dev_review import apply_dev_additions
 
 from .common.context import RunContext
 from .common.decision import Decision, write_decision
@@ -142,31 +143,74 @@ def process(ctx: RunContext, data: dict) -> pd.DataFrame:
 
 # ---------------------------------------------------------------- 03 rank
 def rank(ctx: RunContext, scored: pd.DataFrame) -> pd.DataFrame:
-    """Default: top-B by `score`. Adapt id/score/reason columns to your track."""
-    budget = int(ctx.param("budget", 20))
-    if "score" not in scored.columns:
-        raise ValueError("rank(): process() output needs a numeric `score` column (higher = review first), "
-                         "or adapt rank() to your track")
-    q = make_review_queue(scored, id_col=scored.columns[0], score_col="score", budget=budget,
-                          reason_col="reason" if "reason" in scored.columns else None)
-    write_review_queue(q, ctx.out("review_queue.csv"))
-    return q
+    annotations = pd.read_csv(ctx.input_dir / "annotations.csv")
+    images = pd.read_csv(ctx.input_dir / "images.csv")
 
+    ann_images = annotations.set_index("ann_id")["image_id"].to_dict()
+    image_splits = images.set_index("image_id")["split"].to_dict()
+
+    pool = scored.copy()
+    pool["image_id"] = pool["item_id"].map(
+        lambda item: item[4:]
+        if item.startswith("img:")
+        else ann_images.get(item)
+    )
+    pool["slice"] = pool["image_id"].map(image_splits)
+
+    # Chỉ review thủ công tập dev trong quá trình phát triển
+    pool = pool[pool["slice"] == "dev"].copy()
+
+    budget = int(ctx.param("budget", 10))
+    queue = make_review_queue(
+        pool,
+        id_col="item_id",
+        score_col="score",
+        budget=budget,
+        reason_col="reason",
+        slice_col="slice",
+    )
+    write_review_queue(queue, ctx.out("review_queue.csv"))
+    return queue
 
 # ---------------------------------------------------------------- 04 review
-def review(ctx: RunContext, scored: pd.DataFrame, queue: pd.DataFrame) -> pd.DataFrame:
-    """If a reviewed queue exists (out/review_queue_reviewed.csv), apply it. Otherwise pass through.
-
-    TODO: decide what an `edit` / `reject` means for your track and apply it
-    (e.g. via common.review.apply_overrides), logging every change to ctx.audit.
-    """
+def review(ctx: RunContext, scored: pd.DataFrame,
+           queue: pd.DataFrame) -> pd.DataFrame:
     reviewed_path = ctx.output_dir / "review_queue_reviewed.csv"
-    if reviewed_path.exists():
-        reviewed = load_review_decisions(reviewed_path)
-        ctx.stats["n_reviewed"] = len(reviewed)
-        # TODO: apply overrides
-    return scored
+    ctx.stats["n_reviewed"] = 0
 
+    if not reviewed_path.exists():
+        return scored
+
+    reviewed = load_review_decisions(reviewed_path)
+
+    if reviewed["item_id"].duplicated().any():
+        raise ValueError("Duplicate item_id in reviewed file")
+
+    valid_ids = set(queue["item_id"])
+    for row in reviewed.itertuples(index=False):
+        if row.item_id not in valid_ids:
+            raise ValueError(f"Item outside current review queue: {row.item_id}")
+
+        # Hiện mới hỗ trợ giữ nhãn, bỏ qua hoặc chuyển kiểm tra thêm
+        if row.reviewer_decision not in {"approve", "skip", "escalate"}:
+            raise ValueError("Label editing is not implemented yet")
+
+    # Chỉ ghi audit sau khi toàn bộ quyết định đã được kiểm tra
+    for row in reviewed.itertuples(index=False):
+        ctx.audit.log(
+            actor=row.reviewer,
+            action=f"review:{row.reviewer_decision}",
+            item_id=row.item_id,
+            after={
+                "decision": row.reviewer_decision,
+                "evidence_path": row.evidence_path,
+                "reviewed_at": row.reviewed_at,
+            },
+            reason=row.review_note,
+        )
+
+    ctx.stats["n_reviewed"] = len(reviewed)
+    return scored
 
 # ---------------------------------------------------------------- 05 decide
 def decide(ctx: RunContext, final: pd.DataFrame) -> Decision:
@@ -182,5 +226,6 @@ def run(ctx: RunContext) -> None:
     ctx.stats["n_items"] = len(scored)
     queue = rank(ctx, scored)
     final = review(ctx, scored, queue)
+    apply_dev_additions(ctx)
     final[spec.pred_columns + [c for c in final.columns if c not in spec.pred_columns]].to_csv(ctx.out(spec.pred_file), index=False)
     write_decision(decide(ctx, final), ctx.out("decision.json"), ctx.out("decision_log.csv"))

@@ -1,16 +1,24 @@
+import sys
+
 from pathlib import Path
 
 import pandas as pd
 from PIL import Image, ImageDraw
 
 root = Path("fixtures/t11_label_errors")
-image_id = "lbl_43"
+image_id = sys.argv[1] if len(sys.argv) > 1 else "lbl_43"
+use_reviewed = "--reviewed" in sys.argv[2:]
 
 images = pd.read_csv(root / "images.csv")
 info = images.loc[images["image_id"] == image_id].iloc[0]
 assert info["split"] == "dev", "Only inspect dev images here."
 
-annotations = pd.read_csv(root / "annotations.csv")
+annotation_path = (
+    Path("out/poc/annotations_reviewed.csv")
+    if use_reviewed
+    else root / "annotations.csv"
+)
+annotations = pd.read_csv(annotation_path)
 predictions = pd.read_csv(root / "model_predictions.csv")
 
 with Image.open(root / info["path"]) as source:
@@ -19,7 +27,7 @@ with Image.open(root / info["path"]) as source:
 panels = []
 
 for table, title, color in [
-    (annotations, "CURRENT ANNOTATIONS", "lime"),
+    (annotations, "REVIEWED ANNOTATIONS" if use_reviewed else "CURRENT ANNOTATIONS", "lime"),
     (predictions, "MODEL PREDICTIONS", "orange"),
 ]:
     panel = original.copy()
@@ -46,7 +54,8 @@ canvas = Image.new("RGB", (panels[0].width * 2, panels[0].height), "black")
 canvas.paste(panels[0], (0, 0))
 canvas.paste(panels[1], (panels[0].width, 0))
 
-output = Path("out/poc/inspect_lbl_43.png")
+suffix = "_reviewed" if use_reviewed else ""
+output = Path(f"out/poc/inspect_{image_id}{suffix}.png")
 output.parent.mkdir(parents=True, exist_ok=True)
 canvas.save(output)
 print(f"Saved: {output}")
